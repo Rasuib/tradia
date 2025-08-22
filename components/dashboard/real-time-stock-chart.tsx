@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
@@ -38,12 +38,10 @@ export default function RealTimeStockChart({
   const [change, setChange] = useState(initialChange)
   const [changePercent, setChangePercent] = useState(initialChangePercent)
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
   const fetchChartData = useCallback(async () => {
     if (!symbol) return
 
-    console.log("[v0] Fetching data for symbol:", symbol, "at", new Date().toLocaleTimeString())
     setLoading(true)
     setIsRefreshing(true)
     try {
@@ -52,35 +50,27 @@ export default function RealTimeStockChart({
         fetch(`/api/stock/${symbol}`),
       ])
 
-      console.log("[v0] API responses received:", chartResponse.status, priceResponse.status)
-
       const chartData = await chartResponse.json()
       const priceData = await priceResponse.json()
 
       if (chartData.chartData) {
         setChartData(chartData.chartData)
-        console.log("[v0] Chart data updated, points:", chartData.chartData.length)
       }
 
       if (priceData.price) {
-        const newPrice = priceData.price
-        const newChange = priceData.change
-        const newChangePercent = priceData.changePercent
-
-        console.log("[v0] Price updated:", newPrice, "Change:", newChange, "Percent:", newChangePercent)
-
-        setCurrentPrice(newPrice)
-        setChange(newChange)
-        setChangePercent(newChangePercent)
+        setCurrentPrice(priceData.price)
+        setChange(priceData.change)
+        setChangePercent(priceData.changePercent)
 
         if (onPriceUpdate) {
-          onPriceUpdate(newPrice, newChange, newChangePercent)
+          onPriceUpdate(priceData.price, priceData.change, priceData.changePercent)
         }
       }
 
       setLastUpdate(new Date())
     } catch (error) {
-      console.error("[v0] Failed to fetch stock data:", error)
+      console.error("Failed to fetch stock data:", error)
+      setTimeout(() => fetchChartData(), 2000)
     } finally {
       setLoading(false)
       setIsRefreshing(false)
@@ -88,62 +78,23 @@ export default function RealTimeStockChart({
   }, [symbol, timeRange, onPriceUpdate])
 
   useEffect(() => {
-    if (!symbol) {
-      setChartData([])
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-        intervalRef.current = null
-      }
-      return
-    }
-
-    console.log("[v0] Setting up auto-refresh for symbol:", symbol)
-
-    // Initial fetch
     fetchChartData()
 
-    // Clear existing interval
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current)
-    }
+    const interval = setInterval(fetchChartData, 3000)
 
-    // Set up new interval
-    intervalRef.current = setInterval(() => {
-      console.log("[v0] Auto-refresh triggered for:", symbol)
-      fetchChartData()
-    }, 30000) // Changed from 2 minutes (120000ms) to 30 seconds (30000ms)
-
-    return () => {
-      console.log("[v0] Cleaning up interval for:", symbol)
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-        intervalRef.current = null
-      }
-    }
-  }, [symbol]) // Removed fetchChartData from dependencies to prevent interval recreation
-
-  useEffect(() => {
-    if (symbol && timeRange) {
-      console.log("[v0] Time range changed to:", timeRange)
-      fetchChartData()
-    }
-  }, [timeRange, fetchChartData])
+    return () => clearInterval(interval)
+  }, [fetchChartData])
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp)
     if (timeRange === "1D") {
-      return date.toLocaleTimeString("en-IN", {
+      return date.toLocaleTimeString("en-US", {
         hour: "2-digit",
         minute: "2-digit",
         hour12: false,
-        timeZone: "Asia/Kolkata",
       })
     }
-    return date.toLocaleDateString("en-IN", {
-      month: "short",
-      day: "numeric",
-      timeZone: "Asia/Kolkata",
-    })
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
   }
 
   const formatPrice = (value: number) => {
@@ -169,12 +120,10 @@ export default function RealTimeStockChart({
           <CardTitle className="text-white flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-cyan-400" />
             {symbol} Price Chart
-            {symbol && (
-              <Badge variant="outline" className="text-xs text-gray-400 border-gray-600 flex items-center gap-1">
-                <RefreshCw className={`w-3 h-3 ${isRefreshing ? "animate-spin" : ""}`} />
-                Auto-refresh every 30s
-              </Badge>
-            )}
+            <Badge variant="outline" className="text-xs text-gray-400 border-gray-600 flex items-center gap-1">
+              <RefreshCw className={`w-3 h-3 ${isRefreshing ? "animate-spin" : ""}`} />
+              Auto-refresh every 3s
+            </Badge>
           </CardTitle>
           <Select value={timeRange} onValueChange={setTimeRange}>
             <SelectTrigger className="w-20 bg-gray-800 border-gray-700 text-white">
@@ -254,7 +203,7 @@ export default function RealTimeStockChart({
 
           <p className="text-xs text-gray-500 text-right flex items-center justify-end gap-1">
             <div className={`w-2 h-2 rounded-full ${isRefreshing ? "bg-green-400 animate-pulse" : "bg-gray-500"}`} />
-            Last updated: {lastUpdate.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })}
+            Last updated: {lastUpdate.toLocaleTimeString()}
           </p>
         </div>
       </CardContent>
