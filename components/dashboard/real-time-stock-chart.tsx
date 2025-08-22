@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
@@ -39,51 +39,76 @@ export default function RealTimeStockChart({
   const [changePercent, setChangePercent] = useState(initialChangePercent)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
-  const fetchChartData = useCallback(async () => {
-    if (!symbol) return
-
-    setLoading(true)
-    setIsRefreshing(true)
-    try {
-      const [chartResponse, priceResponse] = await Promise.all([
-        fetch(`/api/stock/${symbol}/chart?range=${timeRange}`),
-        fetch(`/api/stock/${symbol}`),
-      ])
-
-      const chartData = await chartResponse.json()
-      const priceData = await priceResponse.json()
-
-      if (chartData.chartData) {
-        setChartData(chartData.chartData)
-      }
-
-      if (priceData.price) {
-        setCurrentPrice(priceData.price)
-        setChange(priceData.change)
-        setChangePercent(priceData.changePercent)
-
-        if (onPriceUpdate) {
-          onPriceUpdate(priceData.price, priceData.change, priceData.changePercent)
-        }
-      }
-
-      setLastUpdate(new Date())
-    } catch (error) {
-      console.error("Failed to fetch stock data:", error)
-      setTimeout(() => fetchChartData(), 2000)
-    } finally {
-      setLoading(false)
-      setIsRefreshing(false)
-    }
-  }, [symbol, timeRange, onPriceUpdate])
-
+  // Effect for fetching the full historical chart data
   useEffect(() => {
-    fetchChartData()
+    const fetchFullChart = async () => {
+      if (!symbol) return
+      setLoading(true)
+      setIsRefreshing(true)
+      try {
+        const response = await fetch(`/api/stock/${symbol}/chart?range=${timeRange}`)
+        const data = await response.json()
+        if (data.chartData) {
+          setChartData(data.chartData)
+          // Set initial price from the last point of the chart data to avoid discrepancy
+          const lastPoint = data.chartData[data.chartData.length - 1]
+          if (lastPoint) {
+            setCurrentPrice(lastPoint.price)
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch chart data:", error)
+      } finally {
+        setLoading(false)
+        setIsRefreshing(false)
+      }
+    }
 
-    const interval = setInterval(fetchChartData, 3000)
+    fetchFullChart()
+  }, [symbol, timeRange]) // This effect runs only when the symbol or timeRange changes
 
+  // Effect for fetching only the latest price on an interval
+  useEffect(() => {
+    const fetchLatestPrice = async () => {
+      if (!symbol) return
+      setIsRefreshing(true) // Indicate a background refresh is happening
+      try {
+        const response = await fetch(`/api/stock/${symbol}`)
+        const priceData = await response.json()
+
+        if (priceData.price) {
+          setCurrentPrice(priceData.price)
+          setChange(priceData.change)
+          setChangePercent(priceData.changePercent)
+
+          if (onPriceUpdate) {
+            onPriceUpdate(priceData.price, priceData.change, priceData.changePercent)
+          }
+
+          // Optional: Add the new price point to the chart if viewing '1D'
+          if (timeRange === "1D") {
+            const newPoint: ChartDataPoint = {
+              time: new Date().toLocaleTimeString(),
+              price: priceData.price,
+              timestamp: Date.now(),
+            }
+            // Add the new point and remove the oldest if the list gets too long
+            setChartData(prevData => [...prevData.slice(1), newPoint])
+          }
+        }
+        setLastUpdate(new Date())
+      } catch (error) {
+        console.error("Failed to fetch latest price:", error)
+      } finally {
+        setIsRefreshing(false)
+      }
+    }
+
+    const interval = setInterval(fetchLatestPrice, 3000)
+
+    // Cleanup interval on component unmount or when dependencies change
     return () => clearInterval(interval)
-  }, [fetchChartData])
+  }, [symbol, onPriceUpdate, timeRange]) // Re-evaluate if these change
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp)
@@ -185,7 +210,7 @@ export default function RealTimeStockChart({
                     axisLine={false}
                     tickLine={false}
                     tick={{ fill: "#9CA3AF", fontSize: 12 }}
-                    tickFormatter={(value) => value.toFixed(2)}
+                    tickFormatter={(value: number) => value.toFixed(2)}
                   />
                   <Tooltip content={<CustomTooltip />} />
                   <Line
